@@ -1,9 +1,8 @@
 services:
   app:
     build: .
-    image: kredi-takip:latest
     ports:
-      - "9997:3000"
+      - "9998:3000"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
