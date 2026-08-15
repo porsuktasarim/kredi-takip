@@ -1,14 +1,26 @@
-// Annuity amortization helpers
-function monthlyPayment(principal, ratePct, n) {
-  const r = ratePct / 100;
-  if (r === 0) return principal / n;
-  return principal * r / (1 - Math.pow(1 + r, -n));
+// Reverse amortization: principal + monthly payment + installment count -> implied interest rate
+function pv(r, M, n) {
+  if (r === 0) return M * n;
+  return M * (1 - Math.pow(1 + r, -n)) / r;
 }
-function remainingBalance(principal, ratePct, n, paidCount) {
-  const r = ratePct / 100;
-  const M = monthlyPayment(principal, ratePct, n);
-  if (r === 0) return Math.max(0, principal - M * paidCount);
-  const bal = principal * Math.pow(1 + r, paidCount) - M * ((Math.pow(1 + r, paidCount) - 1) / r);
-  return Math.max(0, bal);
+function solveMonthlyRate(principal, payment, n) {
+  if (payment * n <= principal) return 0; // no interest / already covers it
+  let lo = 1e-8, hi = 2; // 0% .. 200% monthly (safe upper bound)
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2;
+    if (pv(mid, payment, n) > principal) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
 }
-module.exports = { monthlyPayment, remainingBalance };
+function addMonths(dateStr, months) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + months);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d.toISOString().slice(0, 10);
+}
+function monthOf(dateStr) { return dateStr.slice(0, 7); }
+
+module.exports = { pv, solveMonthlyRate, addMonths, monthOf };

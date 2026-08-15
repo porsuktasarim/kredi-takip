@@ -1,0 +1,26 @@
+<%- include('head') %>
+<h3><%= t.monthly_report_title %></h3>
+<form method="get" action="/report" class="mb-3 row g-2">
+  <div class="col-auto"><input class="form-control" type="month" name="month" value="<%= month %>"></div>
+  <div class="col-auto"><button class="btn btn-primary"><%= t.select_month %></button></div>
+</form>
+
+<table class="table bg-white shadow-sm">
+<thead><tr><th><%= t.due_date %></th><th><%= t.name %></th><th></th><th><%= t.amount %></th><th><%= t.status %></th></tr></thead>
+<tbody>
+<% if (!items.length) { %><tr><td colspan="5" class="text-muted"><%= t.nothing_due %></td></tr><% } %>
+<% items.forEach(i => { %>
+<tr class="<%= i.paid ? 'table-success' : '' %>">
+<td><%= i.date %></td>
+<td><%= i.name %></td>
+<td><span class="badge bg-secondary"><%= i.type === 'loan' ? t.loan_installment : t.bill %></span></td>
+<td><%= i.amount.toLocaleString() %></td>
+<td><%= i.paid ? t.done : t.pending %></td>
+</tr>
+<% }) %>
+</tbody>
+<tfoot>
+<tr class="fw-bold"><td colspan="3"><%= t.total_due %></td><td><%= total.toLocaleString() %></td><td class="text-danger"><%= totalUnpaid.toLocaleString() %></td></tr>
+</tfoot>
+</table>
+<%- include('foot') %>

@@ -1,7 +1,7 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const { read, write } = require('./db');
-const { monthlyPayment, remainingBalance } = require('./amort');
+const { solveMonthlyRate, addMonths, monthOf } = require('./amort');
 const langs = require('./lang');
 
 const app = express();
@@ -17,17 +17,39 @@ app.use((req, res, next) => {
 });
 
 function ym(d = new Date()) { return d.toISOString().slice(0, 7); }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+function loanSchedule(loan) {
+  const paidSet = new Set(loan.paidInstallments || []);
+  const schedule = [];
+  for (let i = 1; i <= loan.installments; i++) {
+    schedule.push({
+      no: i,
+      date: addMonths(loan.startDate, i - 1),
+      amount: loan.monthlyPayment,
+      paid: paidSet.has(i)
+    });
+  }
+  return schedule;
+}
 
 app.get('/', (req, res) => res.redirect('/loans'));
 
 // LOANS
 app.get('/loans', (req, res) => {
   const db = read();
-  const loans = db.loans.map(l => ({
-    ...l,
-    monthly: monthlyPayment(l.principal, l.rate, l.installments),
-    remaining: remainingBalance(l.principal, l.rate, l.installments, l.paid)
-  }));
+  const loans = db.loans.map(l => {
+    const paidCount = (l.paidInstallments || []).length;
+    const rate = solveMonthlyRate(l.principal, l.monthlyPayment, l.installments);
+    return {
+      ...l,
+      paidCount,
+      totalPayment: l.monthlyPayment * l.installments,
+      totalInterest: l.monthlyPayment * l.installments - l.principal,
+      rate,
+      remaining: l.monthlyPayment * (l.installments - paidCount)
+    };
+  });
   res.render('loans', { t: req.t, lang: req.lang, loans });
 });
 
@@ -37,9 +59,10 @@ app.post('/loans/add', (req, res) => {
     id: Date.now().toString(),
     name: req.body.name,
     principal: parseFloat(req.body.principal),
-    rate: parseFloat(req.body.rate) || 0,
+    monthlyPayment: parseFloat(req.body.monthlyPayment),
     installments: parseInt(req.body.installments),
-    paid: 0
+    startDate: req.body.startDate || todayStr(),
+    paidInstallments: []
   });
   write(db);
   res.redirect('/loans');
@@ -55,7 +78,26 @@ app.post('/loans/:id/delete', (req, res) => {
 app.post('/loans/:id/pay', (req, res) => {
   const db = read();
   const loan = db.loans.find(l => l.id === req.params.id);
-  if (loan && loan.paid < loan.installments) loan.paid++;
+  if (loan) {
+    const paid = new Set(loan.paidInstallments || []);
+    for (let i = 1; i <= loan.installments; i++) {
+      if (!paid.has(i)) { paid.add(i); break; }
+    }
+    loan.paidInstallments = [...paid];
+  }
+  write(db);
+  res.redirect('/loans/' + req.params.id);
+});
+
+app.post('/loans/:id/toggle/:no', (req, res) => {
+  const db = read();
+  const loan = db.loans.find(l => l.id === req.params.id);
+  const no = parseInt(req.params.no);
+  if (loan) {
+    const paid = new Set(loan.paidInstallments || []);
+    if (paid.has(no)) paid.delete(no); else paid.add(no);
+    loan.paidInstallments = [...paid];
+  }
   write(db);
   res.redirect('/loans/' + req.params.id);
 });
@@ -64,12 +106,11 @@ app.get('/loans/:id', (req, res) => {
   const db = read();
   const loan = db.loans.find(l => l.id === req.params.id);
   if (!loan) return res.redirect('/loans');
-  const monthly = monthlyPayment(loan.principal, loan.rate, loan.installments);
-  const schedule = [];
-  for (let i = 1; i <= loan.installments; i++) {
-    schedule.push({ no: i, payment: monthly, paid: i <= loan.paid, remaining: remainingBalance(loan.principal, loan.rate, loan.installments, i) });
-  }
-  res.render('loan_detail', { t: req.t, lang: req.lang, loan, monthly, schedule });
+  const rate = solveMonthlyRate(loan.principal, loan.monthlyPayment, loan.installments);
+  const totalPayment = loan.monthlyPayment * loan.installments;
+  const totalInterest = totalPayment - loan.principal;
+  const schedule = loanSchedule(loan);
+  res.render('loan_detail', { t: req.t, lang: req.lang, loan, rate, totalPayment, totalInterest, schedule });
 });
 
 // BILLS
@@ -109,6 +150,34 @@ app.post('/bills/:id/toggle', (req, res) => {
   }
   write(db);
   res.redirect('/bills');
+});
+
+// MONTHLY REPORT
+app.get('/report', (req, res) => {
+  const db = read();
+  const month = req.query.month || ym();
+  const items = [];
+
+  db.loans.forEach(loan => {
+    const schedule = loanSchedule(loan);
+    schedule.forEach(s => {
+      if (monthOf(s.date) === month) {
+        items.push({ type: 'loan', name: loan.name, date: s.date, amount: s.amount, paid: s.paid, loanId: loan.id, no: s.no });
+      }
+    });
+  });
+
+  db.bills.forEach(bill => {
+    const paidThisMonth = db.billPayments.some(p => p.bill_id === bill.id && p.month === month);
+    const day = String(bill.due_day).padStart(2, '0');
+    items.push({ type: 'bill', name: bill.name, date: `${month}-${day}`, amount: bill.amount, paid: paidThisMonth, billId: bill.id });
+  });
+
+  items.sort((a, b) => a.date.localeCompare(b.date));
+  const total = items.reduce((s, i) => s + i.amount, 0);
+  const totalUnpaid = items.filter(i => !i.paid).reduce((s, i) => s + i.amount, 0);
+
+  res.render('report', { t: req.t, lang: req.lang, items, month, total, totalUnpaid });
 });
 
 const PORT = process.env.PORT || 3000;
