@@ -1,0 +1,24 @@
+<%- include('head') %>
+<a href="/loans" class="btn btn-sm btn-link mb-3">&larr; <%= t.back %></a>
+<h3><%= loan.name %></h3>
+<p><%= t.monthly_payment %>: <strong><%= monthly.toFixed(2) %></strong> | <%= t.installments %>: <%= loan.installments %> | <%= t.rate %>: <%= loan.rate %>%</p>
+
+<% if (loan.paid < loan.installments) { %>
+<form method="post" action="/loans/<%= loan.id %>/pay" class="mb-3">
+  <button class="btn btn-success"><%= t.pay_installment %></button>
+</form>
+<% } else { %>
+<p class="text-success fw-bold"><%= t.fully_paid %> ✅</p>
+<% } %>
+
+<table class="table table-sm bg-white shadow-sm">
+<thead><tr><th><%= t.installment_no %></th><th><%= t.monthly_payment %></th><th><%= t.remaining %></th><th><%= t.status %></th></tr></thead>
+<tbody>
+<% schedule.forEach(s => { %>
+<tr class="<%= s.paid ? 'table-success' : '' %>">
+<td><%= s.no %></td><td><%= s.payment.toFixed(2) %></td><td><%= s.remaining.toFixed(2) %></td>
+<td><%= s.paid ? t.done : t.pending %></td>
+</tr>
+<% }) %>
+</tbody></table>
+<%- include('foot') %>
